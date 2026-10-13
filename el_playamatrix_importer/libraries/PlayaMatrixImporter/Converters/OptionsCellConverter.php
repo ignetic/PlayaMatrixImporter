@@ -95,9 +95,15 @@ class OptionsCellConverter {
 			// For each option, find its corresponding value
 			foreach ($data as $option)
 			{
-				if (isset($options[$option]))
+				// Stored values are kept as they are, even ones no longer in
+				// the options list, so templates see the same data as before
+				if ($keep_values && $option !== '')
 				{
-					$new_data[] = $keep_values ? $option : $options[$option];
+					$new_data[] = $option;
+				}
+				elseif (isset($options[$option]))
+				{
+					$new_data[] = $options[$option];
 				}
 			}
 
@@ -106,9 +112,14 @@ class OptionsCellConverter {
 		}
 
 		// For Switch celltypes
+		if ($keep_values)
+		{
+			return $data;
+		}
+
 		if (isset($options[$data]))
 		{
-			return $keep_values ? $data : $options[$data];
+			return $options[$data];
 		}
 
 		// Hopefully should never get here in practice
