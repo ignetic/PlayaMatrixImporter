@@ -41,9 +41,13 @@ class MatrixConverter
 	 */
 	public static function convertSettings($settings)
 	{
+		// Matrix rows are always horizontal and reorderable; Grid's default
+		// 'auto' layout switches wide fields to vertical
 		$defaults = array(
-			'grid_min_rows'	=> 0,
-			'grid_max_rows'	=> ''
+			'grid_min_rows'		=> 0,
+			'grid_max_rows'		=> '',
+			'allow_reorder'		=> 'y',
+			'vertical_layout'	=> 'horizontal'
 		);
 
 		foreach (array(

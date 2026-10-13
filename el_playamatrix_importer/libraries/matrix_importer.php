@@ -77,7 +77,15 @@ class Matrix_importer {
 
 		ee()->load->library('grid_lib');
 
-		$grid_fieldtypes = array_keys(ee()->grid_lib->get_grid_fieldtypes());
+		$grid_fieldtypes = ee()->grid_lib->get_grid_fieldtypes();
+
+		// EE6+ returns the fieldtypes alongside their compatibility groups
+		if (isset($grid_fieldtypes['fieldtypes']))
+		{
+			$grid_fieldtypes = $grid_fieldtypes['fieldtypes'];
+		}
+
+		$grid_fieldtypes = array_keys($grid_fieldtypes);
 
 		ee()->load->remove_package_path(PATH_FT.'grid/');
 		
@@ -183,6 +191,13 @@ class Matrix_importer {
 				ee()->db->insert_batch('channel_grid_field_'.$field_id, $new_data);
 			}
 
+			// For columns marked as searchable, store their text in the new
+			// Grid field's channel data column
+			if ($matrix['field_search'] == 'y')
+			{
+				$this->import_searchable_data($field_id, $new_columns, $new_column_ids, $new_data);
+			}
+
 			$matrix_to_grid_fields[$matrix['field_id']] = $field_id;
 		}
 
@@ -191,11 +206,6 @@ class Matrix_importer {
 
 		// Import Assets data
 		$this->import_assets_data($matrix_to_grid_fields, $matrix_to_grid_cols);
-
-		// For columns marked as searchable, copy their searchable text over
-		// to the new Grid fields=
-		$this->import_searchable_data($matrix_to_grid_fields);
-		
 
 		//return array_values($matrix_to_grid_fields);
 		return $matrix_to_grid_fields;
@@ -271,41 +281,6 @@ class Matrix_importer {
 			->result_array();
 	}
 
-	/**
-	 * Columns marked as searchable have their data duplicated and stored in the
-	 * channel_data table; this method lets us get that data
-	 *
-	 * @param	array	Array of Matrix field IDs to get data for
-	 * @return	array	Database result array of searchable Matrix field data
-	 */
-	private function get_matrix_channel_data($matrix_field_ids)
-	{
-		if (empty($matrix_field_ids))
-		{
-			return FALSE;
-		}
-
-		$data = array();
-
-		foreach ($matrix_field_ids as $field_id)
-		{
-			$table = 'channel_data';
-			
-			ee()->db->select('field_id_'.$field_id);
-			if (ee()->db->table_exists('channel_data_field_'.$field_id))
-			{
-				$table = 'channel_data_field_'.$field_id;
-			}
-			
-			$result = ee()->db->select('entry_id')
-				->get($table)
-				->result_array();
-				
-			$data = array_merge($data, $result);
-		}
-
-		return $data;
-	}
 	
 	
 	/**
@@ -352,57 +327,97 @@ class Matrix_importer {
 	
 
 	/**
-	 * Copys over searchable data from Matrix fields into their new Grid fields'
-	 * column in the channel_data table
+	 * Stores searchable column data in a new Grid field's channel data column,
+	 * pipe-delimited per entry, the same way Grid does when an entry is saved
 	 *
-	 * @param	array	Associative array of Matrix field IDs to their corresponding Grid field IDs
+	 * @param	int	New Grid field ID
+	 * @param	array	New Grid columns keyed by Matrix column ID
+	 * @param	array	Associative array of Matrix column IDs to Grid column IDs
+	 * @param	array	Grid data rows inserted for this field
 	 * @return	void
 	 */
-	private function import_searchable_data($matrix_to_grid_fields)
+	private function import_searchable_data($field_id, $grid_columns, $matrix_to_grid_cols, $grid_data)
 	{
-		if ($channel_data = $this->get_matrix_channel_data(array_keys($matrix_to_grid_fields)))
+		$searchable_cols = array();
+		foreach ($grid_columns as $matrix_col_id => $column)
 		{
-			foreach ($channel_data as $row)
+			if ($column['col_search'] == 'y' && $column['col_type'] != 'relationship')
 			{
-				// Go over each field and map the field IDs to the new ones
-				foreach ($row as $key => $value)
+				$searchable_cols[] = 'col_id_'.$matrix_to_grid_cols[$matrix_col_id];
+			}
+		}
+
+		if (empty($searchable_cols))
+		{
+			return;
+		}
+
+		$searchable_data = array();
+		foreach ($grid_data as $row)
+		{
+			foreach ($searchable_cols as $col)
+			{
+				if (isset($row[$col]) && $row[$col] !== '')
 				{
-					// Skip entry_id and any empty columns
-					if ($key == 'entry_id' OR empty($value))
-					{
-						continue;
-					}
-
-					$matrix_field_id = str_replace('field_id_', '', $key);
-
-					$field_id = $matrix_to_grid_fields[$matrix_field_id];
-
-					$data = array();
-
-					$data['field_id_'.$field_id] = $value;
-					$data['field_ft_'.$field_id] = 'none';
-					$where['entry_id'] = $row['entry_id'];
-
-					/* 
-					// cannot use table_exists directly after creating it - returns false
-					$table = 'channel_data';
-					if (ee()->db->table_exists('channel_data_field_'.$field_id))
-					{
-						$table = 'channel_data_field_'.$field_id;
-					}
-					*/
-
-					$table = 'channel_data';
-					if ($this->EE4) 
-					{
-						$table = 'channel_data_field_'.$field_id;
-					}
-
-					ee()->db->update($table, $data, $where);
-					
+					$searchable_data[$row['entry_id']][] = $row[$col];
 				}
 			}
 		}
+
+		if (empty($searchable_data))
+		{
+			return;
+		}
+
+		ee()->load->helper('custom_field');
+
+		$table = $this->get_field_data_table($field_id);
+
+		foreach ($searchable_data as $entry_id => $values)
+		{
+			$data = array(
+				'field_id_'.$field_id => encode_multi_field($values),
+				'field_ft_'.$field_id => 'none'
+			);
+
+			// channel_data has a row for every entry, but a new field's own
+			// table starts empty
+			if ($table == 'channel_data' OR
+				ee()->db->where('entry_id', $entry_id)->count_all_results($table))
+			{
+				ee()->db->where('entry_id', $entry_id)->update($table, $data);
+			}
+			else
+			{
+				$data['entry_id'] = $entry_id;
+				ee()->db->insert($table, $data);
+			}
+		}
+	}
+
+	/**
+	 * Gets the table a field's channel data is stored in; EE5+ fields have
+	 * their own table unless they use legacy field data
+	 *
+	 * @param	int	Field ID
+	 * @return	string	Table name without prefix
+	 */
+	private function get_field_data_table($field_id)
+	{
+		if (ee()->db->field_exists('legacy_field_data', 'channel_fields'))
+		{
+			$field = ee()->db->select('legacy_field_data')
+				->where('field_id', $field_id)
+				->get('channel_fields')
+				->row();
+
+			if ($field && $field->legacy_field_data == 'n')
+			{
+				return 'channel_data_field_'.$field_id;
+			}
+		}
+
+		return 'channel_data';
 	}
 
 	/**
