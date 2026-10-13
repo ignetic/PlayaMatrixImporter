@@ -59,14 +59,19 @@ class TextCellConverter {
 			}
 		}
 
-		// Probably a Number cell, convert to a Text cell with an integer content type
+		// Probably a Number cell, convert to a Text cell with a numeric content type
 		if (isset($settings['max_value']))
 		{
-			// But only set as integer type if the max value fits inside an integer database column
-			if ($settings['max_value'] <= 2147483648 && $settings['max_value'] >= -2147483648 &&
-				$settings['min_value'] <= 2147483648 && $settings['min_value'] >= -2147483648)
+			$min = isset($settings['min_value']) ? $settings['min_value'] : '';
+			$max = $settings['max_value'];
+
+			// But only when both bounds are set and fit inside a signed integer
+			// database column
+			if (is_numeric($min) && is_numeric($max) &&
+				$min >= -2147483648 && $max <= 2147483647)
 			{
-				$defaults['field_content_type'] = 'integer';
+				$defaults['field_content_type'] = ( ! empty($settings['decimals']) && $settings['decimals'] > 0)
+					? 'decimal' : 'integer';
 			}
 		}
 

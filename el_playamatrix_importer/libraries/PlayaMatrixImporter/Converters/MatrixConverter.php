@@ -84,6 +84,12 @@ class MatrixConverter
 			}
 
 			$settings = unserialize(base64_decode($matrix_column['col_settings']));
+
+			// Columns saved without settings
+			if ( ! is_array($settings))
+			{
+				$settings = array();
+			}
 			$column_type = self::mapColumnType($matrix_column['col_type'], $settings, $grid_fieldtypes);
 			$new_settings = self::mapColumnSettings($column_type, $settings, $value_label_pairs);
 
@@ -260,16 +266,25 @@ class MatrixConverter
 					// Decode original column settings in case we need to dig into
 					// column options
 					$col_settings = unserialize(base64_decode($columns[$matrix_col_id]['col_settings']));
+
+					if ( ! is_array($col_settings))
+					{
+						$col_settings = array();
+					}
 					$row_data = $row['col_id_'.$matrix_col_id];
 
 					// Options cells need their data converted into a different format
 					// in order to be read by native fieldtypes
-					if (in_array(
-						self::mapColumnType($columns[$matrix_col_id]['col_type'], $col_settings),
-						array('checkboxes', 'radio', 'select', 'multi_select')
-					))
+					$column_type = self::mapColumnType($columns[$matrix_col_id]['col_type'], $col_settings);
+
+					if (in_array($column_type, array('checkboxes', 'radio', 'select', 'multi_select')))
 					{
-						$row_data = OptionsCellConverter::convertData($row_data, $col_settings, $value_label_pairs);
+						$row_data = OptionsCellConverter::convertData(
+							$row_data,
+							$col_settings,
+							$value_label_pairs,
+							in_array($column_type, array('checkboxes', 'multi_select'))
+						);
 					}
 
 					$new_grid_row['col_id_'.$grid_col_id] = $row_data;

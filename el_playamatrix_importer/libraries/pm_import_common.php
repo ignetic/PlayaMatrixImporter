@@ -58,17 +58,24 @@ class Pm_import_common {
 
 		$field_name = $field_name.$suffix;
 
+		if ( ! isset($this->field_names[$site_id]))
+		{
+			$this->field_names[$site_id] = array();
+		}
+
 		// Check to see if the proposed field name exists, and append numbers
-		// until it is unique
+		// until it is unique, shortening the name to stay within 32 characters
+		$base_name = $field_name;
 		$i = 1;
 		while (in_array($field_name, $this->field_names[$site_id]))
 		{
-			$field_name = substr($field_name, 0, strlen($field_name) - strlen($i));
-			$field_name .= $i++;
+			$field_name = substr($base_name, 0, 32 - strlen($i)).$i;
+			$i++;
 		}
 
-		// Cache the field name we settled on
-		$this->field_names[] = $field_name;
+		// Cache the field name we settled on so later fields in this import
+		// don't take it too
+		$this->field_names[$site_id][] = $field_name;
 
 		return $field_name;
 	}

@@ -68,9 +68,10 @@ class OptionsCellConverter {
 	 * @param	string	Matrix cell data
 	 * @param	array	Decoded and unserialized settings for the cell's column
 	 * @param	bool	Whether native option fields support value/label pairs (EE3+)
+	 * @param	bool	Whether the target field stores several values (checkboxes, multi select)
 	 * @return	string	Converted cell data
 	 */
-	public static function convertData($data, $settings, $value_label_pairs = FALSE)
+	public static function convertData($data, $settings, $value_label_pairs = FALSE, $multi = FALSE)
 	{
 		// Empty field? Do nothing
 		if (empty($data))
@@ -107,7 +108,16 @@ class OptionsCellConverter {
 				}
 			}
 
-			// EE data is stored pipe-delimited
+			// EE data is stored pipe-delimited, with pipes and backslashes in
+			// values escaped the same way as encode_multi_field()
+			if ($multi)
+			{
+				foreach ($new_data as $key => $value)
+				{
+					$new_data[$key] = str_replace(array('\\', '|'), array('\\\\', '\|'), $value);
+				}
+			}
+
 			return implode('|', $new_data);
 		}
 
