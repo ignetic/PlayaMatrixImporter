@@ -32,9 +32,10 @@ class OptionsCellConverter {
 	 * Given an array of field settings an options-type field, returns an EE-compatible equivalent
 	 *
 	 * @param	array	Decoded and unserialized field_settings for an options field
+	 * @param	bool	Whether native option fields support value/label pairs (EE3+)
 	 * @return	array	Equivalent native field settings fit for any options field
 	 */
-	public static function convertSettings($settings)
+	public static function convertSettings($settings, $value_label_pairs = FALSE)
 	{
 		$defaults = array(
 			'field_pre_populate'	=> 'n',
@@ -42,37 +43,34 @@ class OptionsCellConverter {
 			'field_list_items'		=> array(),
 		);
 
-		if (isset($settings['options']) && is_array($settings['options']))
-		{
-			// Some values may be arrays if options list is separated in to groups,
-			// we need to flatten the array
-			$new_values = array();
-			$iterator = new \RecursiveIteratorIterator(new \RecursiveArrayIterator($settings['options']));
-			foreach ($iterator as $value)
-			{
-				$new_values[] = $value;
-			}
+		$options = self::getOptions($settings);
 
-			$defaults['field_list_items'] = implode("\n", $new_values);
-		}
-		// Switch celltype
-		else if (isset($settings['off_label']) && isset($settings['on_label']))
+		// Keep the stored values when they differ from their labels so
+		// existing data and template conditionals carry on working
+		if ($value_label_pairs && self::hasDistinctValues($options))
 		{
-			$defaults['field_list_items'] = implode("\n", array($settings['off_label'], $settings['on_label']));
+			$defaults['field_pre_populate'] = 'v';
+			$defaults['field_list_items'] = '';
+			$defaults['value_label_pairs'] = $options;
+		}
+		else if ( ! empty($options))
+		{
+			$defaults['field_list_items'] = implode("\n", $options);
 		}
 
 		return $defaults;
 	}
 
 	/**
-	 * Converts data from a Matrix options celltype into a format readable by native
-	 * option fieldtypes
+	 * Given cell data from an options-type cell, returns data in the format
+	 * native option fields expect
 	 *
-	 * @param	mixed	Raw data value from Matrix column
-	 * @param	array	Original column settings for Matrix column
-	 * @return	mixed	Raw data value to store in new Grid field
+	 * @param	string	Matrix cell data
+	 * @param	array	Decoded and unserialized settings for the cell's column
+	 * @param	bool	Whether native option fields support value/label pairs (EE3+)
+	 * @return	string	Converted cell data
 	 */
-	public static function convertData($data, $settings)
+	public static function convertData($data, $settings, $value_label_pairs = FALSE)
 	{
 		// Empty field? Do nothing
 		if (empty($data))
@@ -80,10 +78,13 @@ class OptionsCellConverter {
 			return '';
 		}
 
+		$options = self::getOptions($settings);
+		$keep_values = ($value_label_pairs && self::hasDistinctValues($options));
+
 		// Some celltypes allow for key => value options to be stored and they
-		// subsequently store the keys in the data table; EE only works with
-		// values so we need to map those keys to their respective values and
-		// store those instead
+		// subsequently store the keys in the data table; without value/label
+		// pairs EE only works with values so we need to map those keys to
+		// their respective values and store those instead
 		if (isset($settings['options']))
 		{
 			// Matrix data is stored separated by linebreak
@@ -94,9 +95,9 @@ class OptionsCellConverter {
 			// For each option, find its corresponding value
 			foreach ($data as $option)
 			{
-				if (isset($settings['options'][$option]))
+				if (isset($options[$option]))
 				{
-					$new_data[] = $settings['options'][$option];
+					$new_data[] = $keep_values ? $option : $options[$option];
 				}
 			}
 
@@ -105,20 +106,61 @@ class OptionsCellConverter {
 		}
 
 		// For Switch celltypes
-		if (isset($settings['off_label']))
+		if (isset($options[$data]))
 		{
-			if ($data == $settings['off_val'])
-			{
-				return $settings['off_label'];
-			}
-
-			if ($data == $settings['on_val'])
-			{
-				return $settings['on_label'];
-			}
+			return $keep_values ? $data : $options[$data];
 		}
 
 		// Hopefully should never get here in practice
 		return '';
+	}
+
+	/**
+	 * Gets a flat array of stored values to labels from an options-type
+	 * cell's settings
+	 *
+	 * @param	array	Decoded and unserialized settings for the cell's column
+	 * @return	array	Stored values => labels
+	 */
+	private static function getOptions($settings)
+	{
+		$options = array();
+
+		if (isset($settings['options']) && is_array($settings['options']))
+		{
+			// Options may be separated in to groups, we need to flatten the array
+			$iterator = new \RecursiveIteratorIterator(new \RecursiveArrayIterator($settings['options']));
+			foreach ($iterator as $value => $label)
+			{
+				$options[$value] = $label;
+			}
+		}
+		// Switch celltype
+		else if (isset($settings['off_label']) && isset($settings['on_label']))
+		{
+			$options[isset($settings['off_val']) ? $settings['off_val'] : $settings['off_label']] = $settings['off_label'];
+			$options[isset($settings['on_val']) ? $settings['on_val'] : $settings['on_label']] = $settings['on_label'];
+		}
+
+		return $options;
+	}
+
+	/**
+	 * Whether any option's stored value differs from its label
+	 *
+	 * @param	array	Stored values => labels
+	 * @return	bool
+	 */
+	private static function hasDistinctValues($options)
+	{
+		foreach ($options as $value => $label)
+		{
+			if ((string) $value !== (string) $label)
+			{
+				return TRUE;
+			}
+		}
+
+		return FALSE;
 	}
 }

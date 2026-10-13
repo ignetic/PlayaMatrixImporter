@@ -154,7 +154,7 @@ class Matrix_importer {
 				->where('field_id', $field_id)
 				->update('channel_fields');
 
-			$new_columns = MatrixConverter::convertMatrixColumns($columns[$matrix['field_id']], $grid_fieldtypes, $field_id);
+			$new_columns = MatrixConverter::convertMatrixColumns($columns[$matrix['field_id']], $grid_fieldtypes, $field_id, $this->EE3);
 
 			// Create new columns and gather new column IDs to map to old columns
 			$new_column_ids = array();
@@ -176,8 +176,10 @@ class Matrix_importer {
 				}
 			}
 
+			$this->map_url_title_columns($new_columns, $new_column_ids);
+
 			$matrix_data = $this->get_matrix_data($new_column_ids, $matrix['field_id'], $playa_columns);
-			$new_data = MatrixConverter::convertMatrixData($matrix_data, $new_column_ids, $columns[$matrix['field_id']]);
+			$new_data = MatrixConverter::convertMatrixData($matrix_data, $new_column_ids, $columns[$matrix['field_id']], $this->EE3);
 
 			// Add Publisher fields if installed
 			if (ee()->addons_model->module_installed('publisher'))
@@ -325,6 +327,45 @@ class Matrix_importer {
 		}
 	}
 	
+
+	/**
+	 * Matrix URL Title refers to its title column by name, Grid URL Title by
+	 * column ID; points converted URL Title columns at their new title column
+	 *
+	 * @param	array	New Grid columns keyed by Matrix column ID
+	 * @param	array	Associative array of Matrix column IDs to Grid column IDs
+	 * @return	void
+	 */
+	private function map_url_title_columns($grid_columns, $matrix_to_grid_cols)
+	{
+		foreach ($grid_columns as $matrix_col_id => $column)
+		{
+			if ($column['col_type'] != 'grid_url_title')
+			{
+				continue;
+			}
+
+			$settings = json_decode($column['col_settings'], TRUE);
+
+			if (empty($settings['title_col']))
+			{
+				continue;
+			}
+
+			foreach ($grid_columns as $title_matrix_col_id => $title_column)
+			{
+				if ($title_column['col_name'] == $settings['title_col'])
+				{
+					$settings['title_col'] = $matrix_to_grid_cols[$title_matrix_col_id];
+
+					ee()->db->where('col_id', $matrix_to_grid_cols[$matrix_col_id])
+						->update('grid_columns', array('col_settings' => json_encode($settings)));
+
+					break;
+				}
+			}
+		}
+	}
 
 	/**
 	 * Stores searchable column data in a new Grid field's channel data column,

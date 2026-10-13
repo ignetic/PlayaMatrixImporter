@@ -69,9 +69,10 @@ class MatrixConverter
 	 * @param	array	Database result array of a single Matrix column
 	 * @param	array		Array of Grid-compatible fieldtypes' short names
 	 * @param	int		Field ID of new Grid field to create this column for
+	 * @param	bool	Whether native option fields support value/label pairs (EE3+)
 	 * @return	array	New Grid column ready to send to save_col_settings
 	 */
-	public static function convertMatrixColumns($columns, $grid_fieldtypes, $field_id)
+	public static function convertMatrixColumns($columns, $grid_fieldtypes, $field_id, $value_label_pairs = FALSE)
 	{
 		$grid_columns = array();
 		foreach ($columns as $matrix_column)
@@ -84,7 +85,7 @@ class MatrixConverter
 
 			$settings = unserialize(base64_decode($matrix_column['col_settings']));
 			$column_type = self::mapColumnType($matrix_column['col_type'], $settings, $grid_fieldtypes);
-			$new_settings = self::mapColumnSettings($column_type, $settings);
+			$new_settings = self::mapColumnSettings($column_type, $settings, $value_label_pairs);
 
 			$grid_columns[$matrix_column['col_id']] = array(
 				'field_id'			=> $field_id,
@@ -149,6 +150,17 @@ class MatrixConverter
 			return $col_type_mapping[$from_cell_type];
 		}
 
+		// Celltypes with a Grid counterpart that may not be installed
+		$grid_counterparts = array(
+			'matrix_url_title'	=> 'grid_url_title'
+		);
+
+		if (isset($grid_counterparts[$from_cell_type]) &&
+			in_array($grid_counterparts[$from_cell_type], $grid_fieldtypes))
+		{
+			return $grid_counterparts[$from_cell_type];
+		}
+
 		// Is the source celltype Grid compatible? If so, let's try to keep if
 		if (in_array($from_cell_type, $grid_fieldtypes))
 		{
@@ -165,9 +177,10 @@ class MatrixConverter
 	 *
 	 * @param	string		Target fieldtype's name, e.g. 'text', 'relationship'
 	 * @param	settings	Decoded settings for the Matrix column
+	 * @param	bool		Whether native option fields support value/label pairs (EE3+)
 	 * @return	string		EE-equivalent fieldtype settings for specified fieldtype
 	 */
-	public static function mapColumnSettings($to_cell_type, $settings)
+	public static function mapColumnSettings($to_cell_type, $settings, $value_label_pairs = FALSE)
 	{
 		switch ($to_cell_type) {
 			case 'date':
@@ -179,7 +192,7 @@ class MatrixConverter
 			case 'radio':
 			case 'select':
 			case 'multi_select':
-				return OptionsCellConverter::convertSettings($settings);
+				return OptionsCellConverter::convertSettings($settings, $value_label_pairs);
 				break;
 
 			case 'relationship':
@@ -202,6 +215,12 @@ class MatrixConverter
 			case 'text':
 				return TextCellConverter::convertSettings($settings);
 
+			case 'grid_url_title':
+				// Matrix URL Title doesn't force unique titles unless asked to;
+				// its title_col is a column name, remapped to an ID once the
+				// Grid columns exist
+				return array_merge(array('unique_titles' => 'n'), $settings);
+
 			default:
 				return $settings;
 				break;
@@ -218,9 +237,10 @@ class MatrixConverter
 	 * @param	array	Associative array of Matrix column IDs to their respective
 	 *	Grid column IDs
 	 * @param	array	Array of original Matrix columns from Matrix importer's get_matrix_columns
+	 * @param	bool	Whether native option fields support value/label pairs (EE3+)
 	 * @return	array	New Grid field data ready to be inserted into the field's table
 	 */
-	public static function convertMatrixData($matrix_data, $matrix_to_grid_cols, $columns)
+	public static function convertMatrixData($matrix_data, $matrix_to_grid_cols, $columns, $value_label_pairs = FALSE)
 	{
 		// Loop over the old data and map it to our new table and column IDs
 		$grid_data = array();
@@ -249,7 +269,7 @@ class MatrixConverter
 						array('checkboxes', 'radio', 'select', 'multi_select')
 					))
 					{
-						$row_data = OptionsCellConverter::convertData($row_data, $col_settings);
+						$row_data = OptionsCellConverter::convertData($row_data, $col_settings, $value_label_pairs);
 					}
 
 					$new_grid_row['col_id_'.$grid_col_id] = $row_data;
