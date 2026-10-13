@@ -32,8 +32,10 @@ class El_playamatrix_importer_mcp {
 
 	private $_base_url;	
 	private $site_id = 1;
-	
+	private $_form_base_url;
+
 	private $EE3 = FALSE;
+	private $EE4 = FALSE;
 
 	/**
 	 * Constructor
@@ -44,7 +46,14 @@ class El_playamatrix_importer_mcp {
 		{
 			$this->EE3 = TRUE;
 		}
-		
+
+		// Field groups shared between channels and the current publish
+		// layout format arrived in EE4
+		if (defined('APP_VER') && version_compare(APP_VER, '4.0.0', '>='))
+		{
+			$this->EE4 = TRUE;
+		}
+
 		$this->site_id = ee()->config->item('site_id');
 		
 		$this->_form_base_url = ($this->EE3) ?  ee('CP/URL', 'addons/settings/el_playamatrix_importer') : 'C=addons_modules'.AMP.'M=show_module_cp'.AMP.'module=el_playamatrix_importer';
@@ -111,6 +120,13 @@ class El_playamatrix_importer_mcp {
 				$new_type = 'relationship';
 			}
 
+			// Fields renamed on import hand their original name to the new field
+			if (preg_match('/^__(.+)_(matrix|playa)$/', $channel_field['field_name'], $matches) &&
+				isset($imported_fields[$matches[1]]) && $imported_fields[$matches[1]] == $new_type)
+			{
+				$new_name = $matches[1];
+			}
+
 			if (isset($imported_fields[$new_name]) && $imported_fields[$new_name] == $new_type)
 			{
 				$label .= ' <i>('.sprintf(lang('already_imported'), htmlspecialchars($new_name, ENT_QUOTES, 'UTF-8'), $new_type).')</i>';
@@ -151,9 +167,27 @@ class El_playamatrix_importer_mcp {
 					)
 				  )
 				)
-				
+
 			  )
 			);
+
+			// Optional steps to swap the new fields in for the old ones
+			if ($this->EE4)
+			{
+				foreach (array('rename_fields', 'remove_old_fields', 'replace_in_layouts') as $option)
+				{
+					$vars['sections']['cutover_options'][] = array(
+						'title' => $option,
+						'desc' => $option.'_desc',
+						'fields' => array(
+							$option => array(
+								'type' => 'yes_no',
+								'value' => 'n'
+							)
+						)
+					);
+				}
+			}
 
 			// Final view variables we need to render the form
 			$vars += array(
@@ -249,13 +283,29 @@ class El_playamatrix_importer_mcp {
 			// Update field groups
 			$this->import_field_groups($new_relationship_ids+$new_grid_ids);
 
-			if ($this->EE3) 
+			$cutover_messages = array();
+			if ($this->EE4)
 			{
-				ee('CP/Alert')->makeInline('shared-form')
+				$cutover_messages = $this->cutover_fields($new_relationship_ids+$new_grid_ids, array(
+					'rename_fields'			=> (ee()->input->post('rename_fields') == 'y'),
+					'remove_old_fields'		=> (ee()->input->post('remove_old_fields') == 'y'),
+					'replace_in_layouts'	=> (ee()->input->post('replace_in_layouts') == 'y')
+				));
+			}
+
+			if ($this->EE3)
+			{
+				$alert = ee('CP/Alert')->makeInline('shared-form')
 					->asSuccess()
 					->withTitle(lang('import_success'))
-					->addToBody(sprintf(lang('import_completed'), count($new_relationship_ids), count($new_grid_ids)))
-					->defer();
+					->addToBody(sprintf(lang('import_completed'), count($new_relationship_ids), count($new_grid_ids)));
+
+				if ( ! empty($cutover_messages))
+				{
+					$alert->addToBody($cutover_messages);
+				}
+
+				$alert->defer();
 			}
 			else
 			{
@@ -322,6 +372,174 @@ class El_playamatrix_importer_mcp {
 				}
 			}
 		}
+	}
+
+	/**
+	 * Optionally swaps newly imported fields in for the fields they were
+	 * imported from: the new field takes the original name, the old field
+	 * leaves its channels and field groups, and publish layouts show the
+	 * new field in the old field's place
+	 *
+	 * @param	array	Associative array of old field IDs to new field IDs
+	 * @param	array	Which steps to run, keyed by option name
+	 * @return	array	Messages describing what was done
+	 */
+	private function cutover_fields($imported_fields, $options)
+	{
+		$messages = array();
+
+		foreach ($imported_fields as $old_field_id => $new_field_id)
+		{
+			$old_field = ee()->db->where('field_id', $old_field_id)
+				->get('channel_fields')
+				->row_array();
+
+			if (empty($old_field))
+			{
+				continue;
+			}
+
+			$name = $old_field['field_name'];
+			$old_name = $name;
+
+			if ($options['rename_fields'])
+			{
+				$suffix = ($old_field['field_type'] == 'playa') ? 'playa' : 'matrix';
+				$old_name = $this->get_free_field_name('__', $name, '_'.$suffix, $old_field['site_id']);
+
+				// Free up the original name first, field names are unique
+				ee()->db->where('field_id', $old_field_id)
+					->update('channel_fields', array(
+						'field_name'	=> $old_name,
+						'field_label'	=> substr('__'.$old_field['field_label'].' '.ucfirst($suffix), 0, 50)
+					));
+
+				ee()->db->where('field_id', $new_field_id)
+					->update('channel_fields', array(
+						'field_name'	=> $name,
+						'field_label'	=> $old_field['field_label']
+					));
+
+				$messages[] = sprintf(lang('cutover_renamed'), $name, $old_name);
+			}
+
+			if ($options['remove_old_fields'])
+			{
+				ee()->db->where('field_id', $old_field_id)->delete('channel_field_groups_fields');
+				ee()->db->where('field_id', $old_field_id)->delete('channels_channel_fields');
+
+				$messages[] = sprintf(lang('cutover_removed'), $old_name);
+			}
+
+			if ($options['replace_in_layouts'])
+			{
+				$messages[] = sprintf(
+					lang('cutover_layouts'),
+					$name,
+					$this->replace_in_layouts($old_field_id, $new_field_id)
+				);
+			}
+		}
+
+		return $messages;
+	}
+
+	/**
+	 * Builds a field name from a prefix, name and suffix that isn't in use,
+	 * shortening the name to keep within the 32 character limit
+	 *
+	 * @param	string	Prefix, e.g. '__'
+	 * @param	string	Original field name
+	 * @param	string	Suffix, e.g. '_matrix'
+	 * @param	int		Site ID
+	 * @return	string	Unused field name
+	 */
+	private function get_free_field_name($prefix, $name, $suffix, $site_id)
+	{
+		$number = '';
+
+		while (TRUE)
+		{
+			$candidate = $prefix.substr($name, 0, 32 - strlen($prefix.$suffix.$number)).$suffix.$number;
+
+			$taken = ee()->db->where('field_name', $candidate)
+				->where_in('site_id', array(0, $site_id))
+				->count_all_results('channel_fields');
+
+			if ( ! $taken)
+			{
+				return $candidate;
+			}
+
+			$number = ($number === '') ? 2 : $number + 1;
+		}
+	}
+
+	/**
+	 * Puts a new field where an old field was in every publish layout,
+	 * keeping its visible and collapsed state; EE adds new fields to the
+	 * end of a layout's first tab, so that copy is removed
+	 *
+	 * @param	int		Old field ID
+	 * @param	int		New field ID
+	 * @return	int		Number of layouts changed
+	 */
+	private function replace_in_layouts($old_field_id, $new_field_id)
+	{
+		$old = 'field_id_'.$old_field_id;
+		$new = 'field_id_'.$new_field_id;
+		$count = 0;
+
+		// Quoted so field_id_1 doesn't match field_id_10
+		$layouts = ee()->db->select('layout_id, field_layout')
+			->like('field_layout', '"'.$old.'"')
+			->get('layout_publish')
+			->result_array();
+
+		foreach ($layouts as $layout)
+		{
+			$tabs = @unserialize($layout['field_layout']);
+
+			if ( ! is_array($tabs))
+			{
+				continue;
+			}
+
+			$replaced = FALSE;
+
+			foreach ($tabs as $t => $tab)
+			{
+				if (empty($tab['fields']))
+				{
+					continue;
+				}
+
+				foreach ($tab['fields'] as $f => $field)
+				{
+					if ($field['field'] == $new)
+					{
+						unset($tabs[$t]['fields'][$f]);
+					}
+					elseif ($field['field'] == $old)
+					{
+						$tabs[$t]['fields'][$f]['field'] = $new;
+						$replaced = TRUE;
+					}
+				}
+
+				$tabs[$t]['fields'] = array_values($tabs[$t]['fields']);
+			}
+
+			if ($replaced)
+			{
+				ee()->db->where('layout_id', $layout['layout_id'])
+					->update('layout_publish', array('field_layout' => serialize($tabs)));
+
+				$count++;
+			}
+		}
+
+		return $count;
 	}
 
 }

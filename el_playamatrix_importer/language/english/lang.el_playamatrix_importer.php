@@ -21,7 +21,18 @@ $lang = array(
 	'import_fail' => 'Import Failed',
 	'import_completed' => 'Success: Import has created %d new Relationship fields and %d new Grid fields',
 	'import_no_fields' => 'Failed: No Matrix or Playa fields selected',
-	'already_imported' => 'already imported as %s [%s]'
+	'already_imported' => 'already imported as %s [%s]',
+
+	'cutover_options' => 'After import',
+	'rename_fields' => 'Give new fields the original names',
+	'rename_fields_desc' => 'Renames each old field to <b>__name_matrix</b> (or <b>__name_playa</b>) with its label prefixed by __, then gives the new field the original name and label so templates and add-ons that use the name carry on working.',
+	'remove_old_fields' => 'Remove old fields from channels',
+	'remove_old_fields_desc' => 'Removes each old field from its field groups and channels. The field and its data are kept so they can be checked or restored.',
+	'replace_in_layouts' => 'Replace old fields in publish layouts',
+	'replace_in_layouts_desc' => 'Puts each new field in the old field\'s place in every publish layout, keeping whether it is visible or collapsed.',
+	'cutover_renamed' => '%1$s renamed to %2$s; the new field is now %1$s',
+	'cutover_removed' => '%s removed from its channels and field groups',
+	'cutover_layouts' => '%s replaced in %d publish layout(s)'
 );
 
 // EOF
