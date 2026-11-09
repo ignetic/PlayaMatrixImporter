@@ -26,7 +26,7 @@
 
 class El_playamatrix_importer_upd {
 
-	public $version = '1.0';
+	public $version = '1.0.10';
 	private $module_name = 'El_playamatrix_importer';
 
 	/**
@@ -75,6 +75,21 @@ class El_playamatrix_importer_upd {
 		ee()->db->where('module_name', $this->module_name)
 			->delete('modules');
 
+		return TRUE;
+	}
+
+	// ----------------------------------------------------------------
+
+	/**
+	 * Module Updater
+	 *
+	 * No schema changes between versions; EE records the new version
+	 *
+	 * @param	string	Currently installed version
+	 * @return 	boolean 	TRUE
+	 */
+	public function update($current = '')
+	{
 		return TRUE;
 	}
 }
