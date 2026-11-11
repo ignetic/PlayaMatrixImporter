@@ -516,12 +516,14 @@ class Matrix_importer {
 	 */
 	private function import_assets_data($matrix_to_grid_fields, $matrix_to_grid_cols)
 	{
-		if ( ! ee()->db->table_exists('assets_selections'))
+		if (empty($matrix_to_grid_fields) OR ! ee()->db->table_exists('assets_selections'))
 		{
 			return;
 		}
 
+		// Only the Matrix fields being imported
 		$assets_selections = ee()->db->where('content_type', 'matrix')
+			->where_in('field_id', array_keys($matrix_to_grid_fields))
 			->get('assets_selections')
 			->result_array();
 

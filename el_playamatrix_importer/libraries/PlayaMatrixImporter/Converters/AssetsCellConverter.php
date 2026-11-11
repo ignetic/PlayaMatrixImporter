@@ -38,9 +38,12 @@ class AssetsCellConverter {
 	 */
 	public static function convertData($assets_selections, $matrix_to_grid_fields, $matrix_to_grid_cols)
 	{
-		foreach ($assets_selections as &$row)
+		$grid_selections = array();
+
+		foreach ($assets_selections as $row)
 		{
-			// Don't attempt to map orphaned data
+			// Leave out orphaned data and fields that aren't being imported,
+			// otherwise they'd be inserted again as copies of the originals
 			if ( ! isset($matrix_to_grid_cols[$row['col_id']]) OR
 				 ! isset($matrix_to_grid_fields[$row['field_id']]))
 			{
@@ -57,8 +60,10 @@ class AssetsCellConverter {
 			{
 				unset($row['selection_id']);
 			}
+
+			$grid_selections[] = $row;
 		}
 
-		return $assets_selections;
+		return $grid_selections;
 	}
 }
